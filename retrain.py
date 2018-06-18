@@ -97,6 +97,11 @@ tf.app.flags.DEFINE_string('output_labels', '/tmp/output_labels.txt',
 tf.app.flags.DEFINE_string('summaries_dir', '/tmp/retrain_logs',
                           """Where to save summary logs for TensorBoard.""")
 
+tf.app.flags.DEFINE_string('all_labels_file', '',
+                          """Path to file that contains all possible class labels, one per line""")
+tf.app.flags.DEFINE_string('image_labels_dir', '',
+                          """Path to directory where label text files are located (.jpg.txt)""")
+
 # Details of the training configuration.
 tf.app.flags.DEFINE_integer('how_many_training_steps', 4000,
                             """How many training steps to run before ending.""")
@@ -169,11 +174,13 @@ RESIZED_INPUT_TENSOR_NAME = 'ResizeBilinear:0'
 MAX_NUM_IMAGES_PER_CLASS = 2 ** 27 - 1  # ~134M
 
 # Directory containing files with correct image labels for each image.
-IMAGE_LABELS_DIR = 'image_labels_dir'
+#IMAGE_LABELS_DIR = 'image_labels_dir'
+IMAGE_LABELS_DIR = FLAGS.image_labels_dir
 # Contains cached ground_truth vectors to prevent calculating them again and again
 CACHED_GROUND_TRUTH_VECTORS = {}
 # Contains list of all labels, each label is on a separate line, just like in image_label files
-ALL_LABELS_FILE = "labels.txt"
+#ALL_LABELS_FILE = "labels.txt"
+ALL_LABELS_FILE = FLAGS.all_labels_file
 
 
 def create_image_lists(image_dir, testing_percentage, validation_percentage):
@@ -989,32 +996,39 @@ def main(_):
                                                       train_accuracy * 100))
       print('%s: Step %d: Cross entropy = %f' % (datetime.now(), i,
                                                  cross_entropy_value))
-      validation_bottlenecks, validation_ground_truth = (
-          get_random_cached_bottlenecks(
-              sess, image_lists, FLAGS.validation_batch_size, 'validation',
-              FLAGS.bottleneck_dir, FLAGS.image_dir, jpeg_data_tensor,
-              bottleneck_tensor, labels))
-      # Run a validation step and capture training summaries for TensorBoard
-      # with the `merged` op.
-      validation_summary, validation_accuracy = sess.run(
-          [merged, evaluation_step],
-          feed_dict={bottleneck_input: validation_bottlenecks,
-                     ground_truth_input: validation_ground_truth})
-      validation_writer.add_summary(validation_summary, i)
-      print('%s: Step %d: Validation accuracy = %.1f%%' %
-            (datetime.now(), i, validation_accuracy * 100))
+      pred = sess.run([final_tensor], feed_dict={bottleneck_input: train_bottlenecks, ground_truth_input: train_ground_truth})
+      #print(pred)
+      #print("-------------------")
+      #print(train_ground_truth)
+      #print("===================")
+      if FLAGS.validation_percentage != 0:
+          validation_bottlenecks, validation_ground_truth = (
+              get_random_cached_bottlenecks(
+                  sess, image_lists, FLAGS.validation_batch_size, 'validation',
+                  FLAGS.bottleneck_dir, FLAGS.image_dir, jpeg_data_tensor,
+                  bottleneck_tensor, labels))
+          # Run a validation step and capture training summaries for TensorBoard
+          # with the `merged` op.
+          validation_summary, validation_accuracy = sess.run(
+              [merged, evaluation_step],
+              feed_dict={bottleneck_input: validation_bottlenecks,
+                         ground_truth_input: validation_ground_truth})
+          validation_writer.add_summary(validation_summary, i)
+          print('%s: Step %d: Validation accuracy = %.1f%%' %
+                (datetime.now(), i, validation_accuracy * 100))
 
   # We've completed all our training, so run a final test evaluation on
   # some new images we haven't used before.
-  test_bottlenecks, test_ground_truth = get_random_cached_bottlenecks(
-      sess, image_lists, FLAGS.test_batch_size, 'testing',
-      FLAGS.bottleneck_dir, FLAGS.image_dir, jpeg_data_tensor,
-      bottleneck_tensor, labels)
-  test_accuracy = sess.run(
-      evaluation_step,
-      feed_dict={bottleneck_input: test_bottlenecks,
-                 ground_truth_input: test_ground_truth})
-  print('Final test accuracy = %.1f%%' % (test_accuracy * 100))
+  if FLAGS.testing_percentage != 0:
+      test_bottlenecks, test_ground_truth = get_random_cached_bottlenecks(
+          sess, image_lists, FLAGS.test_batch_size, 'testing',
+          FLAGS.bottleneck_dir, FLAGS.image_dir, jpeg_data_tensor,
+          bottleneck_tensor, labels)
+      test_accuracy = sess.run(
+          evaluation_step,
+          feed_dict={bottleneck_input: test_bottlenecks,
+                     ground_truth_input: test_ground_truth})
+      print('Final test accuracy = %.1f%%' % (test_accuracy * 100))
 
   # Write out the trained graph and labels with the weights stored as constants.
   output_graph_def = graph_util.convert_variables_to_constants(
@@ -1022,7 +1036,7 @@ def main(_):
   with gfile.FastGFile(FLAGS.output_graph, 'wb') as f:
     f.write(output_graph_def.SerializeToString())
   with gfile.FastGFile(FLAGS.output_labels, 'w') as f:
-    f.write('\n'.join(image_lists.keys()) + '\n')
+    f.write('\n'.join(labels) + '\n')
 
 
 if __name__ == '__main__':
